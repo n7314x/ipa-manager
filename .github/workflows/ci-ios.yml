@@ -1,0 +1,84 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "scripts/install-xcodegen.sh"
+      - "scripts/generate-xcode-project.sh"
+      - ".github/workflows/ci-ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - "scripts/install-xcodegen.sh"
+      - "scripts/generate-xcode-project.sh"
+      - ".github/workflows/ci-ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: Swift packages and simulator app
+    runs-on: xcode-27
+    timeout-minutes: 40
+    env:
+      DERIVED_DATA: ${{ runner.temp }}/IPAManagerDerivedData
+      PACKAGE_CACHE: ${{ runner.temp }}/IPAManagerPackageCache
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Record Apple build environment
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-version
+          swift --version
+      - name: Install XcodeGen
+        run: scripts/install-xcodegen.sh
+      - name: Generate project
+        run: scripts/generate-xcode-project.sh
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project ios/IPAManager.xcodeproj \
+            -scheme IPAManager \
+            -clonedSourcePackagesDirPath "$PACKAGE_CACHE"
+      - name: Test local Swift packages
+        run: |
+          set -euo pipefail
+          for package in IPADomain SecurityKit IPALibrary IPAInspection SigningKit DeviceKit PersistenceKit; do
+            swift test --package-path "ios/Packages/$package" --scratch-path "$RUNNER_TEMP/swift-$package"
+          done
+      - name: Build simulator app without signing
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/IPAManager.xcodeproj \
+            -scheme IPAManager \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$PACKAGE_CACHE" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            DEVELOPMENT_TEAM= \
+            build | tee "$RUNNER_TEMP/IPAManager-simulator.log"
+      - name: Upload diagnostics after failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-ci-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/IPAManager-simulator.log
+          if-no-files-found: ignore
+          retention-days: 14

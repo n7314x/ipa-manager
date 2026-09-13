@@ -1,0 +1,89 @@
+# macOS / Xcode
+.DS_Store
+DerivedData/
+build/
+*.xcarchive
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcresult
+
+# Generated Xcode project
+ios/*.xcodeproj
+ios/*.xcworkspace
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Rust
+target/
+native/rust/target/
+
+# C / C++
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Generated native artifacts
+native/artifacts/*
+!native/artifacts/.gitkeep
+
+# Signing material
+*.p12
+*.pfx
+*.cer
+*.mobileprovision
+*.provisionprofile
+*.pem
+*.key
+*.p8
+*.der
+*.crt
+*.keychain*
+
+# Pairing material
+*.mobiledevicepairing
+*.pairing
+*.pairingrecord
+pairing.plist
+pairing-records/
+PairingRecords/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+.envrc
+
+# Temporary IPA workspaces
+tmp/
+temp/
+work/
+*.tmp
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated dependencies
+native/signing-cpp/vendor/*
+!native/signing-cpp/vendor/.gitkeep
+
+# Generated lock/build files
+ios/IPAManager.xcodeproj/
+ios/IPAManager.xcworkspace/
+
+# Native outputs
+*.a
+*.dylib
+*.so
+*.xcframework

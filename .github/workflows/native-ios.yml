@@ -1,0 +1,66 @@
+name: Native iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - "scripts/build-rust-ios.sh"
+      - "scripts/build-xcframeworks.sh"
+      - ".github/workflows/native-ios.yml"
+  pull_request:
+    paths:
+      - "native/**"
+      - "scripts/build-rust-ios.sh"
+      - "scripts/build-xcframeworks.sh"
+      - ".github/workflows/native-ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-ios:
+    name: Build native foundation XCFrameworks
+    runs-on: xcode-27
+    timeout-minutes: 40
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Record Apple build environment
+        run: |
+          set -euo pipefail
+          uname -m
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          cmake --version
+      - name: Install pinned Rust toolchain and Apple targets
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup override set 1.98.1
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - name: Build Rust device and simulator slices
+        env:
+          NATIVE_OUTPUT_DIR: ${{ runner.temp }}/native-ios
+        run: scripts/build-rust-ios.sh
+      - name: Build XCFrameworks
+        env:
+          NATIVE_OUTPUT_DIR: ${{ runner.temp }}/native-ios
+          XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/native-xcframeworks
+        run: scripts/build-xcframeworks.sh
+      - name: List produced slices
+        run: |
+          set -euo pipefail
+          find "$RUNNER_TEMP/native-xcframeworks" -maxdepth 4 -type f -print | sort
+      - name: Upload native foundation artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: IPAManager-native-foundation
+          path: ${{ runner.temp }}/native-xcframeworks/*.xcframework
+          if-no-files-found: error
+          retention-days: 30

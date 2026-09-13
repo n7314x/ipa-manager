@@ -1,0 +1,3 @@
+jkcoxson/idevice is an MIT-licensed upstream project considered for future device services.
+It is not a current dependency. Recheck its current release and license, pin an exact release
+or commit, and capture the upstream notice when integration begins.

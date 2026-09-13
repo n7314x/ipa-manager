@@ -1,0 +1,16 @@
+language = "C"
+include_guard = "IPA_MANAGER_NATIVE_GENERATED_H"
+pragma_once = false
+usize_is_size_t = true
+documentation = true
+style = "both"
+
+[parse]
+parse_deps = false
+
+[export]
+include = [
+    "ipa_manager_native_api_version",
+    "ipa_inspect_macho",
+    "ipa_device_services_status",
+]

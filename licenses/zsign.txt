@@ -1,0 +1,3 @@
+zsign is an MIT-licensed upstream project considered for a future embedded signing engine.
+It is not vendored, linked, or distributed by the current foundation.
+Record the exact upstream revision and its unmodified MIT notice when integration begins.
