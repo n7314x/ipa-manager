@@ -16,17 +16,21 @@ public struct ArchiveEntryDescriptor: Hashable, Sendable {
 }
 
 public struct ArchiveSafetyPolicy: Hashable, Sendable {
+    /// Phase 1A rejects compressed source IPAs larger than 4 GiB before opening the ZIP.
+    public var maximumSourceIPABytes: UInt64
     public var maximumEntryCount: Int
     public var maximumTotalUncompressedBytes: UInt64
     public var maximumEntryUncompressedBytes: UInt64
     public var maximumCompressionRatio: UInt64
 
     public init(
+        maximumSourceIPABytes: UInt64 = 4 * 1_024 * 1_024 * 1_024,
         maximumEntryCount: Int = 10_000,
         maximumTotalUncompressedBytes: UInt64 = 8 * 1_024 * 1_024 * 1_024,
         maximumEntryUncompressedBytes: UInt64 = 512 * 1_024 * 1_024,
         maximumCompressionRatio: UInt64 = 200
     ) {
+        self.maximumSourceIPABytes = maximumSourceIPABytes
         self.maximumEntryCount = maximumEntryCount
         self.maximumTotalUncompressedBytes = maximumTotalUncompressedBytes
         self.maximumEntryUncompressedBytes = maximumEntryUncompressedBytes

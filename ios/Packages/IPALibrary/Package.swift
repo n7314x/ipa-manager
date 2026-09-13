@@ -19,6 +19,13 @@ let package = Package(
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
-        .testTarget(name: "IPALibraryTests", dependencies: ["IPALibrary"]),
+        .testTarget(
+            name: "IPALibraryTests",
+            dependencies: [
+                "IPALibrary",
+                .product(name: "IPADomain", package: "IPADomain"),
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
+            ]
+        ),
     ]
 )

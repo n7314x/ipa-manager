@@ -13,4 +13,8 @@ public final class PersistenceController {
             configurations: configuration
         )
     }
+
+    public func makeImportedIPAStore() -> ImportedIPAStore {
+        ImportedIPAStore(modelContainer: container)
+    }
 }

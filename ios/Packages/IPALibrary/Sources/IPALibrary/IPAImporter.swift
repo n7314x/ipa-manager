@@ -2,25 +2,36 @@ import Foundation
 import IPADomain
 
 public struct IPAImporter: Sendable {
-    public init() {}
+    private let fileManager: FileManager
 
-    /// Copies a security-scoped import into app-owned storage. Callers validate and hash the copy.
-    public func copyOriginal(from source: URL, to destination: URL) throws {
+    public init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
+    /// Copies the provider URL into an app-owned temporary workspace and releases it immediately.
+    public func copyToTemporaryWorkspace(from source: URL, to destination: URL) throws {
         let accessed = source.startAccessingSecurityScopedResource()
         defer { if accessed { source.stopAccessingSecurityScopedResource() } }
-        guard source.pathExtension.lowercased() == "ipa" else { throw IPAError.invalidArchive("file is not an IPA") }
-        let values = try source.resourceValues(forKeys: [.isRegularFileKey])
-        guard values.isRegularFile == true else { throw IPAError.invalidArchive("IPA source is not a regular file") }
-        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard !FileManager.default.fileExists(atPath: destination.path) else { throw IPAError.invalidArchive("original IPA already exists") }
-        let temporary = destination.deletingLastPathComponent().appending(path: ".importing-(UUID().uuidString)")
+
         do {
-            try FileManager.default.copyItem(at: source, to: temporary)
-            try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: temporary.path)
-            try FileManager.default.moveItem(at: temporary, to: destination)
-        } catch {
-            try? FileManager.default.removeItem(at: temporary)
+            guard source.pathExtension.lowercased() == "ipa" else {
+                throw IPAError.invalidSource("the filename does not have an .ipa extension")
+            }
+            let values = try source.resourceValues(forKeys: [
+                .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey,
+            ])
+            guard values.isRegularFile == true, values.isDirectory != true, values.isSymbolicLink != true else {
+                throw IPAError.invalidSource("the selection is not a regular file")
+            }
+            guard !fileManager.fileExists(atPath: destination.path) else {
+                throw IPAError.storageFailure("the temporary destination already exists")
+            }
+            try fileManager.copyItem(at: source, to: destination)
+        } catch let error as IPAError {
             throw error
+        } catch {
+            try? fileManager.removeItem(at: destination)
+            throw IPAError.inaccessibleSource
         }
     }
 }

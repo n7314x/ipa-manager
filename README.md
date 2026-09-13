@@ -1,6 +1,6 @@
 # IPA Manager
 
-IPA Manager is an iOS 17+ application foundation for importing, inspecting, and eventually re-signing IPA archives on device. This repository is currently an architecture scaffold: the Swift package graph, secure-import policy, native C ABIs, and CI build/release paths are established, while signing and direct device installation remain explicitly unsupported.
+IPA Manager is an iOS 17+ application foundation for importing, inspecting, and eventually re-signing IPA archives on device. Phase 1A provides a persistent managed IPA library with security-scoped file import, basic ZIP validation, SHA-256 deduplication, and removal. Inspection, signing, and direct device installation remain explicitly unsupported.
 
 Swift owns SwiftUI, orchestration, storage, persistence, and Keychain integration. Rust owns Mach-O inspection and future device protocols. C++ is restricted to the future embedded signing-engine boundary. See `docs/architecture/overview.md` and `docs/security/threat-model.md` before adding a feature.
 

@@ -13,6 +13,12 @@ let package = Package(
             dependencies: [.product(name: "IPADomain", package: "IPADomain")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
-        .testTarget(name: "PersistenceKitTests", dependencies: ["PersistenceKit"]),
+        .testTarget(
+            name: "PersistenceKitTests",
+            dependencies: [
+                "PersistenceKit",
+                .product(name: "IPADomain", package: "IPADomain"),
+            ]
+        ),
     ]
 )
