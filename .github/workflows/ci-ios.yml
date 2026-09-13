@@ -28,9 +28,6 @@ jobs:
     name: Swift packages and simulator app
     runs-on: xcode-27
     timeout-minutes: 40
-    env:
-      DERIVED_DATA: ${{ runner.temp }}/IPAManagerDerivedData
-      PACKAGE_CACHE: ${{ runner.temp }}/IPAManagerPackageCache
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -52,7 +49,7 @@ jobs:
           xcodebuild -resolvePackageDependencies \
             -project ios/IPAManager.xcodeproj \
             -scheme IPAManager \
-            -clonedSourcePackagesDirPath "$PACKAGE_CACHE"
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/IPAManagerPackageCache"
       - name: Test local Swift packages
         run: |
           set -euo pipefail
@@ -67,8 +64,8 @@ jobs:
             -scheme IPAManager \
             -configuration Debug \
             -destination "generic/platform=iOS Simulator" \
-            -derivedDataPath "$DERIVED_DATA" \
-            -clonedSourcePackagesDirPath "$PACKAGE_CACHE" \
+            -derivedDataPath "$RUNNER_TEMP/IPAManagerDerivedData" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/IPAManagerPackageCache" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY= \

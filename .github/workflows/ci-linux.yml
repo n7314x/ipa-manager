@@ -18,11 +18,11 @@ jobs:
     name: Rust and C++ foundation
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/ipa-manager-rust-target
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+      - name: Configure Cargo target directory
+        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/ipa-manager-rust-target" >> "$GITHUB_ENV"
       - name: Install native build dependencies
         run: |
           set -euo pipefail
