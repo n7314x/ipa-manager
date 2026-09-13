@@ -1,5 +1,5 @@
 use core::{mem::size_of, slice};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crate::{ffi_error::IpaInspectStatus, ffi_types::IpaMachOSummary};
 
@@ -15,7 +15,9 @@ pub unsafe extern "C" fn ipa_inspect_macho(
     length: u64,
     out_summary: *mut IpaMachOSummary,
 ) -> IpaInspectStatus {
-    match catch_unwind(AssertUnwindSafe(|| inspect_impl(bytes, length, out_summary))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        inspect_impl(bytes, length, out_summary)
+    })) {
         Ok(status) => status,
         Err(_) => IpaInspectStatus::Panic,
     }

@@ -1,4 +1,4 @@
-use goblin::{mach::Mach, Object};
+use goblin::{Object, mach::Mach};
 
 use crate::error::InspectionError;
 
