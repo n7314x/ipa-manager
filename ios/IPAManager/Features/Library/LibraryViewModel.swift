@@ -7,12 +7,56 @@ import IPALibrary
 final class LibraryViewModel: ObservableObject {
     struct PresentedError: Identifiable {
         let id = UUID()
+        let title: String
         let message: String
+
+        init(error: Error) {
+            guard let ipaError = error as? IPAError else {
+                title = "Something Went Wrong"
+                message = "The operation could not be completed. Please try again."
+                return
+            }
+
+            switch ipaError {
+            case .duplicateImport:
+                title = "Already in Library"
+                message = "This IPA has already been imported."
+            case .unsupportedArchive, .invalidArchive, .unsafeArchive, .invalidSource:
+                title = "Unsupported IPA"
+                message = "Choose a valid .ipa archive that contains a single application."
+            case .sourceTooLarge(let maximumBytes):
+                title = "IPA Is Too Large"
+                let limit = ByteCountFormatter.string(
+                    fromByteCount: Int64(clamping: maximumBytes),
+                    countStyle: .file
+                )
+                message = "The selected file exceeds the \(limit) import limit."
+            case .inaccessibleSource:
+                title = "File Unavailable"
+                message = "IPA Manager could not read the selected file. Make sure it is downloaded and try again."
+            case .hashingFailure:
+                title = "Couldn’t Verify IPA"
+                message = "IPA Manager could not verify the selected file. The library was not changed."
+            case .storageFailure:
+                title = "Couldn’t Store IPA"
+                message = "The IPA could not be stored on this device. Check available storage and try again."
+            case .persistenceFailure:
+                title = "Library Unavailable"
+                message = "IPA Manager could not update its library. Please try again."
+            case .libraryItemNotFound, .deletionFailure:
+                title = "Couldn’t Remove IPA"
+                message = "The managed copy could not be removed completely. Please try again."
+            case .malformedMetadata, .incompatibleSigning, .nativeFailure, .unsupported:
+                title = "Operation Failed"
+                message = "The operation could not be completed. Please try again."
+            }
+        }
     }
 
     @Published private(set) var importedIPAs: [ImportedIPA] = []
     @Published private(set) var isImporting = false
     @Published private(set) var isLoading = false
+    @Published private(set) var successFeedbackToken = 0
     @Published var isFileImporterPresented = false
     @Published var presentedError: PresentedError?
     @Published var pendingDeletion: ImportedIPA?
@@ -23,7 +67,7 @@ final class LibraryViewModel: ObservableObject {
     init(service: IPALibraryService?, startupError: IPAError? = nil) {
         self.service = service
         if let startupError {
-            self.presentedError = PresentedError(message: startupError.localizedDescription)
+            self.presentedError = PresentedError(error: startupError)
         }
     }
 
@@ -48,11 +92,16 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func confirmDeletion() {
-        guard let importedIPA = pendingDeletion, let service else { return }
+        guard let importedIPA = pendingDeletion else { return }
         pendingDeletion = nil
+        guard let service else {
+            present(IPAError.persistenceFailure("library services are unavailable"))
+            return
+        }
         Task {
             do {
                 try await service.removeImportedIPA(id: importedIPA.id)
+                successFeedbackToken &+= 1
             } catch {
                 present(error)
             }
@@ -71,6 +120,7 @@ final class LibraryViewModel: ObservableObject {
             defer { isImporting = false }
             do {
                 _ = try await service.importIPA(from: url)
+                successFeedbackToken &+= 1
             } catch {
                 present(error)
             }
@@ -90,12 +140,6 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func present(_ error: Error) {
-        let message: String
-        if let localizedError = error as? LocalizedError, let description = localizedError.errorDescription {
-            message = description
-        } else {
-            message = "The operation could not be completed."
-        }
-        presentedError = PresentedError(message: message)
+        presentedError = PresentedError(error: error)
     }
 }
