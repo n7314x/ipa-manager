@@ -1,7 +1,7 @@
 import Foundation
 import IPADomain
 
-public struct IPAImporter: Sendable {
+public struct IPAImporter {
     private let fileManager: FileManager
 
     public init(fileManager: FileManager = .default) {
