@@ -17,11 +17,11 @@ let package = Package(
                 .product(name: "IPADomain", package: "IPADomain"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v6)],
             linkerSettings: [
                 .linkedFramework("ImageIO"),
                 .linkedFramework("Security", .when(platforms: [.macOS])),
-            ],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            ]
         ),
         .testTarget(
             name: "IPAInspectionTests",
