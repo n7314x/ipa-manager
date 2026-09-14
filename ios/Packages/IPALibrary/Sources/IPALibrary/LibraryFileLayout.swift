@@ -13,10 +13,14 @@ public struct LibraryFileLayout: Sendable {
     public func root(for id: UUID) -> URL { libraryRoot.appending(path: id.uuidString, directoryHint: .isDirectory) }
     public func originalIPA(for id: UUID) -> URL { root(for: id).appending(path: "original.ipa") }
     public func metadataDirectory(for id: UUID) -> URL { root(for: id).appending(path: "metadata", directoryHint: .isDirectory) }
+    public func iconCache(for id: UUID) -> URL { metadataDirectory(for: id).appending(path: "app-icon.png") }
     public func artifactsDirectory(for id: UUID) -> URL { root(for: id).appending(path: "artifacts", directoryHint: .isDirectory) }
     public func workDirectory(for id: UUID) -> URL { root(for: id).appending(path: "work", directoryHint: .isDirectory) }
 
     public func originalRelativePath(for id: UUID) -> String { "Library/\(id.uuidString)/original.ipa" }
+    public func iconCacheRelativePath(for id: UUID) -> String {
+        "Library/\(id.uuidString)/metadata/app-icon.png"
+    }
 
     public func createDirectories(for id: UUID, fileManager: FileManager = .default) throws {
         let managedRoot = root(for: id)

@@ -1,3 +1,5 @@
+import IPADomain
+import IPAInspection
 import SwiftUI
 import UIKit
 
@@ -110,6 +112,73 @@ struct IPAPackageIcon: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+}
+
+struct ImportedIPAIcon: View {
+    let importedIPA: ImportedIPA
+    let size: CGFloat
+
+    @State private var cachedImage: UIImage?
+
+    var body: some View {
+        Group {
+            if let cachedImage {
+                Image(uiImage: cachedImage)
+                    .resizable()
+                    .scaledToFill()
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
+                    }
+            } else {
+                IPAPackageIcon(size: size)
+            }
+        }
+        .frame(width: size, height: size)
+        .task(id: importedIPA.inspection?.rootApplication.icon?.relativePath) {
+            cachedImage = loadManagedIcon()
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func loadManagedIcon() -> UIImage? {
+        guard let relativePath = importedIPA.inspection?.rootApplication.icon?.relativePath,
+              relativePath == "Library/\(importedIPA.id.uuidString)/metadata/app-icon.png",
+              !relativePath.hasPrefix("/"),
+              !relativePath.contains("\\")
+        else { return nil }
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
+        guard !components.isEmpty,
+              !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." })
+        else { return nil }
+
+        let fileManager = FileManager()
+        guard let supportURL = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        ) else { return nil }
+        let candidate = components.reduce(supportURL.standardizedFileURL) { partial, component in
+            partial.appending(path: String(component))
+        }.standardizedFileURL
+        let rootComponents = supportURL.standardizedFileURL.pathComponents
+        let candidateComponents = candidate.pathComponents
+        guard candidateComponents.count > rootComponents.count,
+              candidateComponents.prefix(rootComponents.count).elementsEqual(rootComponents),
+              candidate.pathExtension.lowercased() == "png",
+              let values = try? candidate.resourceValues(forKeys: [
+                .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
+              ]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let size = values.fileSize,
+              size > 0,
+              UInt64(size) <= ArchiveSafetyPolicy.default.maximumIconBytes
+        else { return nil }
+        return UIImage(contentsOfFile: candidate.path)
     }
 }
 

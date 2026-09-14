@@ -47,6 +47,20 @@ private struct LibraryPersistenceRepository: LibraryRepository {
         try await store.save(importedIPA)
     }
 
+    func updateInspection(
+        id: UUID,
+        status: InspectionStatus,
+        sourceSHA256: String?,
+        result: IPAInspectionResult?
+    ) async throws {
+        try await store.updateInspection(
+            id: id,
+            status: status,
+            sourceSHA256: sourceSHA256,
+            result: result
+        )
+    }
+
     func removeImportedIPA(id: UUID) async throws {
         try await store.removeImportedIPA(id: id)
     }

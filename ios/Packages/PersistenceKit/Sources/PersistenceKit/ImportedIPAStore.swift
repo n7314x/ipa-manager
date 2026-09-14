@@ -39,6 +39,31 @@ public actor ImportedIPAStore {
         }
     }
 
+    public func updateInspection(
+        id: UUID,
+        status: InspectionStatus,
+        sourceSHA256: String?,
+        result: IPAInspectionResult?
+    ) throws {
+        let identifier = id
+        var descriptor = FetchDescriptor<ImportedIPAEntity>(
+            predicate: #Predicate { $0.id == identifier }
+        )
+        descriptor.fetchLimit = 1
+        guard let entity = try modelContext.fetch(descriptor).first else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let obsoleteComponents = entity.inspectionComponents
+        entity.applyInspection(status: status, sourceSHA256: sourceSHA256, result: result)
+        for component in obsoleteComponents { modelContext.delete(component) }
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+    }
+
     public func removeImportedIPA(id: UUID) throws {
         let identifier = id
         var descriptor = FetchDescriptor<ImportedIPAEntity>(

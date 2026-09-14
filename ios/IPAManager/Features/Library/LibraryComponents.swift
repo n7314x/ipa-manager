@@ -145,52 +145,41 @@ struct ImportedIPARow: View {
 
     var body: some View {
         GlassSurface(cornerRadius: 22, isInteractive: true) {
-            HStack(alignment: .top, spacing: 14) {
-                IPAPackageIcon(size: 54)
+            HStack(alignment: .center, spacing: 14) {
+                ImportedIPAIcon(importedIPA: importedIPA, size: 54)
 
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(importedIPA.originalFilename)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(displayName)
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text("\(fileSize) · \(importDescription)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 7) {
-                            Text("SHA-256")
-                                .fontWeight(.semibold)
-                            Text(abbreviatedHash)
-                                .monospaced()
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("SHA-256")
-                                .fontWeight(.semibold)
-                            Text(abbreviatedHash)
-                                .monospaced()
-                        }
+                    if let bundleIdentifier {
+                        Text(bundleIdentifier)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+
+                    Text(statusLine)
+                        .font(.caption)
+                        .foregroundStyle(statusColor)
+                        .lineLimit(2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.tertiary)
-                    .padding(.top, 19)
                     .accessibilityHidden(true)
             }
             .padding(16)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(importedIPA.originalFilename)
-        .accessibilityValue("\(fileSize), \(importDescription), SHA-256 \(abbreviatedHash)")
+        .accessibilityLabel(displayName)
+        .accessibilityValue([bundleIdentifier, statusLine].compactMap { $0 }.joined(separator: ", "))
         .accessibilityHint("Shows IPA details")
     }
 
@@ -198,19 +187,31 @@ struct ImportedIPARow: View {
         ByteCountFormatter.string(fromByteCount: importedIPA.byteSize, countStyle: .file)
     }
 
-    private var importDescription: String {
-        if Calendar.current.isDateInToday(importedIPA.importedAt) {
-            return "Imported today"
-        }
-        if Calendar.current.isDateInYesterday(importedIPA.importedAt) {
-            return "Imported yesterday"
-        }
-        return "Imported \(importedIPA.importedAt.formatted(date: .abbreviated, time: .omitted))"
+    private var displayName: String {
+        importedIPA.inspection?.rootApplication.displayName ?? importedIPA.originalFilename
     }
 
-    private var abbreviatedHash: String {
-        guard importedIPA.sourceSHA256.count > 18 else { return importedIPA.sourceSHA256 }
-        return "\(importedIPA.sourceSHA256.prefix(10))…\(importedIPA.sourceSHA256.suffix(6))"
+    private var bundleIdentifier: String? {
+        importedIPA.inspection?.rootApplication.bundleIdentifier
+    }
+
+    private var statusLine: String {
+        switch importedIPA.inspectionStatus {
+        case .notInspected:
+            return "Waiting for inspection…"
+        case .inspecting:
+            return "Inspecting…"
+        case .failed:
+            return "Couldn’t inspect IPA"
+        case .inspected:
+            let version = importedIPA.inspection?.rootApplication.shortVersion.map { "Version \($0)" }
+            return [fileSize, version].compactMap { $0 }.joined(separator: " · ")
+        }
+    }
+
+    private var statusColor: Color {
+        if case .failed = importedIPA.inspectionStatus { return .orange }
+        return .secondary
     }
 }
 
@@ -238,7 +239,7 @@ struct ImportProgressBanner: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Importing…")
                         .font(.callout.weight(.semibold))
-                    Text("Preparing a managed copy")
+                    Text("Creating a managed copy and inspecting it safely")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -269,33 +270,69 @@ struct ImportedIPADetailView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         VStack(spacing: 12) {
-                            IPAPackageIcon(size: 82)
-                            Text(importedIPA.originalFilename)
+                            ImportedIPAIcon(importedIPA: importedIPA, size: 82)
+                            Text(displayName)
                                 .font(.title3.weight(.bold))
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Label("Managed on this device", systemImage: "checkmark.shield.fill")
+                            if let bundleIdentifier = app?.bundleIdentifier {
+                                Text(bundleIdentifier)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                            Label(inspectionLabel, systemImage: inspectionSymbol)
                                 .font(.subheadline.weight(.medium))
-                                .foregroundStyle(AppColors.accent)
+                                .foregroundStyle(inspectionColor)
                         }
                         .padding(.bottom, 4)
 
-                        GlassSurface {
+                        DetailSectionCard(title: "Application") {
                             VStack(spacing: 0) {
-                                DetailField(title: "Original filename", value: importedIPA.originalFilename)
-                                divider
-                                DetailField(title: "Size", value: fileSize)
-                                divider
-                                DetailField(title: "Imported", value: importDate)
-                                divider
-                                DetailField(title: "Status", value: "Managed copy")
+                                ForEach(Array(applicationFields.enumerated()), id: \.offset) { index, field in
+                                    if index > 0 { detailDivider }
+                                    DetailField(title: field.title, value: field.value)
+                                }
                             }
                             .padding(.horizontal, 18)
                         }
 
-                        GlassSurface {
+                        if let components = importedIPA.inspection?.components, !components.isEmpty {
+                            DetailSectionCard(title: "Components", subtitle: componentSummary(components)) {
+                                VStack(spacing: 0) {
+                                    ForEach(Array(components.enumerated()), id: \.offset) { index, component in
+                                        if index > 0 { detailDivider }
+                                        ComponentDetailRow(component: component)
+                                    }
+                                }
+                                .padding(.horizontal, 18)
+                            }
+                        }
+
+                        if importedIPA.inspection != nil {
+                            DetailSectionCard(title: "Provisioning") {
+                                VStack(spacing: 0) {
+                                    ForEach(Array(provisioningFields.enumerated()), id: \.offset) { index, field in
+                                        if index > 0 { detailDivider }
+                                        DetailField(title: field.title, value: field.value)
+                                    }
+                                }
+                                .padding(.horizontal, 18)
+                            }
+                        }
+
+                        DetailSectionCard(title: "Integrity") {
                             VStack(alignment: .leading, spacing: 14) {
+                                DetailField(title: "Imported", value: importDate)
+                                if let inspectedAt = importedIPA.inspection?.inspectedAt {
+                                    detailDivider
+                                    DetailField(
+                                        title: "Inspected",
+                                        value: inspectedAt.formatted(date: .long, time: .shortened)
+                                    )
+                                }
+                                detailDivider
                                 Text("SHA-256")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
@@ -319,7 +356,8 @@ struct ImportedIPADetailView: View {
                                 .accessibilityHint("Copies the complete hash")
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(18)
+                            .padding(.horizontal, 18)
+                            .padding(.bottom, 18)
                         }
                     }
                     .padding(.horizontal, 18)
@@ -341,9 +379,121 @@ struct ImportedIPADetailView: View {
         .sensoryFeedback(.success, trigger: copyFeedbackToken)
     }
 
-    private var divider: some View {
+    private var detailDivider: some View {
         Divider()
             .overlay(AppColors.hairline)
+    }
+
+    private var app: AppBundleMetadata? {
+        importedIPA.inspection?.rootApplication
+    }
+
+    private var displayName: String {
+        app?.displayName ?? importedIPA.originalFilename
+    }
+
+    private var inspectionLabel: String {
+        switch importedIPA.inspectionStatus {
+        case .notInspected: "Waiting for inspection"
+        case .inspecting: "Inspecting securely"
+        case .inspected: "Inspection complete"
+        case .failed: "Couldn’t inspect IPA"
+        }
+    }
+
+    private var inspectionSymbol: String {
+        switch importedIPA.inspectionStatus {
+        case .notInspected: "clock"
+        case .inspecting: "hourglass"
+        case .inspected: "checkmark.shield.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var inspectionColor: Color {
+        if case .failed = importedIPA.inspectionStatus { return .orange }
+        return AppColors.accent
+    }
+
+    private var applicationFields: [DetailValue] {
+        var fields: [DetailValue] = []
+        if let app {
+            fields.append(DetailValue(title: "Name", value: app.displayName))
+            append(app.bundleIdentifier, title: "Bundle ID", to: &fields)
+            append(app.shortVersion, title: "Version", to: &fields)
+            append(app.buildVersion, title: "Build", to: &fields)
+            append(app.minimumOSVersion, title: "Minimum iOS", to: &fields)
+            append(app.executableName, title: "Executable", to: &fields)
+            append(app.packageType, title: "Package type", to: &fields)
+            append(app.platformName, title: "Platform", to: &fields)
+            append(app.platformVersion, title: "Platform version", to: &fields)
+            append(app.sdkName, title: "SDK", to: &fields)
+            if !app.deviceFamilies.isEmpty {
+                fields.append(DetailValue(
+                    title: "Device families",
+                    value: app.deviceFamilies.map(String.init).joined(separator: ", ")
+                ))
+            }
+            fields.append(DetailValue(title: "Main application", value: app.relativePath))
+        }
+        fields.append(DetailValue(title: "Original filename", value: importedIPA.originalFilename))
+        fields.append(DetailValue(title: "Size", value: fileSize))
+        return fields
+    }
+
+    private var provisioningFields: [DetailValue] {
+        guard let profile = importedIPA.inspection?.provisioningProfile else {
+            return [DetailValue(title: "Embedded profile", value: "No")]
+        }
+        var fields = [DetailValue(title: "Embedded profile", value: "Yes")]
+        if profile.decodeStatus == .unavailable {
+            fields.append(DetailValue(title: "Profile metadata", value: "Unavailable"))
+            return fields
+        }
+        append(profile.name, title: "Profile name", to: &fields)
+        append(profile.profileUUID, title: "UUID", to: &fields)
+        append(profile.teamName, title: "Team", to: &fields)
+        if !profile.teamIdentifiers.isEmpty {
+            fields.append(DetailValue(title: "Team identifiers", value: profile.teamIdentifiers.joined(separator: ", ")))
+        }
+        if !profile.applicationIdentifierPrefixes.isEmpty {
+            fields.append(DetailValue(
+                title: "Application identifier prefixes",
+                value: profile.applicationIdentifierPrefixes.joined(separator: ", ")
+            ))
+        }
+        if let date = profile.creationDate {
+            fields.append(DetailValue(title: "Created", value: date.formatted(date: .abbreviated, time: .shortened)))
+        }
+        if let date = profile.expirationDate {
+            fields.append(DetailValue(title: "Expires", value: date.formatted(date: .abbreviated, time: .shortened)))
+        }
+        if let count = profile.provisionedDevicesCount {
+            fields.append(DetailValue(title: "Provisioned devices", value: count.formatted()))
+        }
+        if let allDevices = profile.provisionsAllDevices {
+            fields.append(DetailValue(title: "Provisions all devices", value: allDevices ? "Yes" : "No"))
+        }
+        if let entitlements = profile.entitlements {
+            fields.append(DetailValue(title: "Profile entitlements", value: entitlements.count.formatted()))
+        }
+        return fields
+    }
+
+    private func append(_ value: String?, title: String, to fields: inout [DetailValue]) {
+        guard let value, !value.isEmpty else { return }
+        fields.append(DetailValue(title: title, value: value))
+    }
+
+    private func componentSummary(_ components: [BundleComponent]) -> String {
+        let extensions = components.filter { $0.kind == .extensionBundle }.count
+        let frameworks = components.filter { $0.kind == .framework }.count
+        let nestedApps = components.filter { $0.kind == .nestedApplication }.count
+        var summaries = ["Main app"]
+        if extensions > 0 { summaries.append("\(extensions) extension\(extensions == 1 ? "" : "s")") }
+        if frameworks > 0 { summaries.append("\(frameworks) framework\(frameworks == 1 ? "" : "s")") }
+        if nestedApps > 0 { summaries.append("\(nestedApps) nested app\(nestedApps == 1 ? "" : "s")") }
+        return summaries.joined(separator: " · ")
     }
 
     private var fileSize: String {
@@ -355,8 +505,96 @@ struct ImportedIPADetailView: View {
     }
 }
 
+private struct DetailValue {
+    let title: String
+    let value: String
+}
+
+private struct DetailSectionCard<Content: View>: View {
+    let title: String
+    let subtitle: String?
+    let content: Content
+
+    init(title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        GlassSurface {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
+                .padding(.bottom, 6)
+                content
+            }
+        }
+    }
+}
+
+private struct ComponentDetailRow: View {
+    let component: BundleComponent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(component.displayName ?? typeName)
+                .font(.body.weight(.medium))
+            if component.displayName != nil {
+                Text(typeName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let bundleIdentifier = component.bundleIdentifier {
+                Text(bundleIdentifier)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            if let versionLine {
+                Text(versionLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(component.relativePath)
+                .font(.caption.monospaced())
+                .foregroundStyle(.tertiary)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
+    }
+
+    private var typeName: String {
+        switch component.kind {
+        case .application: "Main application"
+        case .extensionBundle: "App extension"
+        case .framework: "Framework"
+        case .nestedApplication: "Nested application"
+        case .dylib: "Dynamic library"
+        }
+    }
+
+    private var versionLine: String? {
+        let version = component.version.map { "Version \($0)" }
+        let build = component.buildVersion.map { "Build \($0)" }
+        let values = [version, build].compactMap { $0 }
+        return values.isEmpty ? nil : values.joined(separator: " · ")
+    }
+}
+
 private struct DetailField: View {
-    let title: LocalizedStringKey
+    let title: String
     let value: String
 
     var body: some View {

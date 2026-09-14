@@ -8,6 +8,7 @@ let package = Package(
     products: [.library(name: "IPALibrary", targets: ["IPALibrary"])],
     dependencies: [
         .package(path: "../IPADomain"),
+        .package(path: "../IPAInspection"),
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
     ],
     targets: [
@@ -15,6 +16,7 @@ let package = Package(
             name: "IPALibrary",
             dependencies: [
                 .product(name: "IPADomain", package: "IPADomain"),
+                .product(name: "IPAInspection", package: "IPAInspection"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -24,6 +26,7 @@ let package = Package(
             dependencies: [
                 "IPALibrary",
                 .product(name: "IPADomain", package: "IPADomain"),
+                .product(name: "IPAInspection", package: "IPAInspection"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]
         ),

@@ -1,24 +1,29 @@
 import Foundation
 import IPADomain
+import IPAInspection
 
 public actor IPALibraryService {
     private let layout: LibraryFileLayout
     private let repository: any LibraryRepository
     private let policy: ArchiveSafetyPolicy
+    private let inspector: any IPAInspecting
     private let fileManager: FileManager
     private let idGenerator: @Sendable () -> UUID
     private let dateProvider: @Sendable () -> Date
+    private var inspectionInProgress = Set<UUID>()
 
     public init(
         layout: LibraryFileLayout,
         repository: any LibraryRepository,
         policy: ArchiveSafetyPolicy = .default,
+        inspector: (any IPAInspecting)? = nil,
         idGenerator: @escaping @Sendable () -> UUID = { UUID() },
         dateProvider: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.layout = layout
         self.repository = repository
         self.policy = policy
+        self.inspector = inspector ?? IPAInspectionService(policy: policy)
         self.fileManager = FileManager()
         self.idGenerator = idGenerator
         self.dateProvider = dateProvider
@@ -97,7 +102,12 @@ public actor IPALibraryService {
             }
             throw IPAError.persistenceFailure("the imported IPA metadata could not be saved")
         }
-        return importedIPA
+        do {
+            return try await inspectImportedIPA(importedIPA)
+        } catch {
+            // Import remains successful even if its independently persisted inspection cannot finish.
+            return importedIPA
+        }
     }
 
     public func listImportedIPAs() async throws -> [ImportedIPA] {
@@ -124,7 +134,37 @@ public actor IPALibraryService {
         }
     }
 
+    public func inspectPendingImportedIPAs() async throws {
+        let items: [ImportedIPA]
+        do {
+            items = try await repository.listImportedIPAs()
+        } catch {
+            throw IPAError.persistenceFailure("the library could not be loaded for inspection")
+        }
+        for item in items where item.needsInspection {
+            _ = try await inspectImportedIPA(item)
+        }
+    }
+
+    public func inspectImportedIPA(id: UUID) async throws -> ImportedIPA {
+        let item: ImportedIPA
+        do {
+            guard let existing = try await repository.importedIPA(id: id) else {
+                throw IPAError.libraryItemNotFound
+            }
+            item = existing
+        } catch let error as IPAError {
+            throw error
+        } catch {
+            throw IPAError.persistenceFailure("the library item could not be loaded for inspection")
+        }
+        return try await inspectImportedIPA(item)
+    }
+
     public func removeImportedIPA(id: UUID) async throws {
+        guard !inspectionInProgress.contains(id) else {
+            throw IPAError.deletionFailure("inspection is still in progress")
+        }
         let item: ImportedIPA
         do {
             guard let existing = try await repository.importedIPA(id: id) else {
@@ -168,6 +208,107 @@ public actor IPALibraryService {
             try fileManager.removeItem(at: quarantineURL)
         } catch {
             throw IPAError.deletionFailure("metadata was deleted, but managed files still require cleanup")
+        }
+    }
+
+    private func inspectImportedIPA(_ item: ImportedIPA) async throws -> ImportedIPA {
+        guard item.needsInspection else { return item }
+        guard inspectionInProgress.insert(item.id).inserted else { return item }
+        defer { inspectionInProgress.remove(item.id) }
+        try await updateInspection(
+            id: item.id,
+            status: .inspecting,
+            sourceSHA256: item.sourceSHA256,
+            result: nil
+        )
+
+        let originalURL = layout.originalIPA(for: item.id)
+        do {
+            let currentHash = try HashService().sha256(of: originalURL)
+            guard currentHash == item.sourceSHA256 else {
+                throw IPAError.unsafeArchive("the managed source no longer matches its import hash")
+            }
+            let result = try await inspector.inspect(IPAInspectionRequest(
+                importedIPAID: item.id,
+                sourceSHA256: item.sourceSHA256,
+                originalIPAURL: originalURL,
+                workDirectory: layout.workDirectory(for: item.id),
+                metadataDirectory: layout.metadataDirectory(for: item.id),
+                iconCacheRelativePath: layout.iconCacheRelativePath(for: item.id)
+            ))
+            guard result.sourceSHA256 == item.sourceSHA256,
+                  result.importedIPAID == item.id,
+                  result.formatVersion == IPAInspectionResult.currentFormatVersion
+            else {
+                throw IPAError.inspectionFailure
+            }
+            let finalHash = try HashService().sha256(of: originalURL)
+            guard finalHash == item.sourceSHA256 else {
+                throw IPAError.unsafeArchive("the managed source changed during inspection")
+            }
+            try await updateInspection(
+                id: item.id,
+                status: .inspected,
+                sourceSHA256: item.sourceSHA256,
+                result: result
+            )
+            var updated = item
+            updated.inspectionStatus = .inspected
+            updated.inspectionSourceSHA256 = item.sourceSHA256
+            updated.inspection = result
+            return updated
+        } catch is CancellationError {
+            try await updateInspection(id: item.id, status: .notInspected, sourceSHA256: nil, result: nil)
+            var updated = item
+            updated.inspectionStatus = .notInspected
+            updated.inspectionSourceSHA256 = nil
+            updated.inspection = nil
+            return updated
+        } catch let error as IPAError {
+            try? fileManager.removeItem(at: layout.iconCache(for: item.id))
+            let failure = InspectionFailureReason(inspectionError: error)
+            try await updateInspection(
+                id: item.id,
+                status: .failed(failure),
+                sourceSHA256: item.sourceSHA256,
+                result: nil
+            )
+            var updated = item
+            updated.inspectionStatus = .failed(failure)
+            updated.inspectionSourceSHA256 = item.sourceSHA256
+            updated.inspection = nil
+            return updated
+        } catch {
+            try? fileManager.removeItem(at: layout.iconCache(for: item.id))
+            try await updateInspection(
+                id: item.id,
+                status: .failed(.unknown),
+                sourceSHA256: item.sourceSHA256,
+                result: nil
+            )
+            var updated = item
+            updated.inspectionStatus = .failed(.unknown)
+            updated.inspectionSourceSHA256 = item.sourceSHA256
+            updated.inspection = nil
+            return updated
+        }
+    }
+
+    private func updateInspection(
+        id: UUID,
+        status: InspectionStatus,
+        sourceSHA256: String?,
+        result: IPAInspectionResult?
+    ) async throws {
+        do {
+            try await repository.updateInspection(
+                id: id,
+                status: status,
+                sourceSHA256: sourceSHA256,
+                result: result
+            )
+        } catch {
+            throw IPAError.persistenceFailure("inspection metadata could not be saved")
         }
     }
 }

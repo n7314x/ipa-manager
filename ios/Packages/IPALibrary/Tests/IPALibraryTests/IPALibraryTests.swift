@@ -1,5 +1,6 @@
 import Foundation
 import IPADomain
+import IPAInspection
 import XCTest
 import ZIPFoundation
 @testable import IPALibrary
@@ -88,6 +89,7 @@ final class IPALibraryTests: XCTestCase {
             let service = IPALibraryService(
                 layout: layout,
                 repository: repository,
+                inspector: deterministicInspector(),
                 idGenerator: { identifier },
                 dateProvider: { importDate }
             )
@@ -99,11 +101,15 @@ final class IPALibraryTests: XCTestCase {
             XCTAssertEqual(imported.importedAt, importDate)
             XCTAssertEqual(imported.byteSize, Int64(sourceData.count))
             XCTAssertEqual(imported.sourceSHA256.count, 64)
+            XCTAssertEqual(imported.inspectionStatus, .inspected)
+            XCTAssertEqual(imported.inspection?.rootApplication.displayName, "Synthetic")
+            XCTAssertEqual(imported.inspection?.rootApplication.bundleIdentifier, "example.synthetic")
             XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
             XCTAssertEqual(try Data(contentsOf: layout.originalIPA(for: identifier)), sourceData)
             XCTAssertTrue(FileManager.default.fileExists(atPath: layout.metadataDirectory(for: identifier).path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: layout.artifactsDirectory(for: identifier).path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: layout.workDirectory(for: identifier).path))
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: layout.workDirectory(for: identifier).path), [])
             let attributes = try FileManager.default.attributesOfItem(atPath: layout.originalIPA(for: identifier).path)
             let permissions = attributes[.posixPermissions] as? NSNumber
             XCTAssertEqual(permissions?.intValue, 0o400)
@@ -194,7 +200,11 @@ final class IPALibraryTests: XCTestCase {
             let sourceURL = try makeSyntheticIPA(in: temporaryDirectory)
             let repository = InMemoryLibraryRepository()
             let layout = LibraryFileLayout(applicationSupportURL: temporaryDirectory.appending(path: "support"))
-            let service = IPALibraryService(layout: layout, repository: repository)
+            let service = IPALibraryService(
+                layout: layout,
+                repository: repository,
+                inspector: deterministicInspector()
+            )
             let imported = try await service.importIPA(from: sourceURL)
 
             try await service.removeImportedIPA(id: imported.id)
@@ -211,7 +221,11 @@ final class IPALibraryTests: XCTestCase {
             let sourceURL = try makeSyntheticIPA(in: temporaryDirectory)
             let repository = InMemoryLibraryRepository(failOnRemove: true)
             let layout = LibraryFileLayout(applicationSupportURL: temporaryDirectory.appending(path: "support"))
-            let service = IPALibraryService(layout: layout, repository: repository)
+            let service = IPALibraryService(
+                layout: layout,
+                repository: repository,
+                inspector: deterministicInspector()
+            )
             let imported = try await service.importIPA(from: sourceURL)
 
             do {
@@ -229,15 +243,96 @@ final class IPALibraryTests: XCTestCase {
         }
     }
 
+    func testInspectionFailureKeepsManagedImportAndPersistsFailureState() async throws {
+        try await withTemporaryDirectory { temporaryDirectory in
+            let sourceFile = temporaryDirectory.appending(path: "resource")
+            try Data("resource".utf8).write(to: sourceFile)
+            let sourceURL = temporaryDirectory.appending(path: "Broken.ipa")
+            do {
+                let archive = try Archive(url: sourceURL, accessMode: .create)
+                try archive.addEntry(with: "Payload/Broken.app/resource", fileURL: sourceFile)
+            }
+
+            let repository = InMemoryLibraryRepository()
+            let layout = LibraryFileLayout(applicationSupportURL: temporaryDirectory.appending(path: "support"))
+            let service = IPALibraryService(
+                layout: layout,
+                repository: repository,
+                inspector: deterministicInspector()
+            )
+
+            let imported = try await service.importIPA(from: sourceURL)
+
+            XCTAssertEqual(imported.inspectionStatus, .failed(.invalidStructure))
+            XCTAssertNil(imported.inspection)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: layout.originalIPA(for: imported.id).path))
+            let storedStatus = try await repository.importedIPA(id: imported.id)?.inspectionStatus
+            XCTAssertEqual(storedStatus, .failed(.invalidStructure))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
+        }
+    }
+
+    func testLegacyImportIsInspectedLazilyAndHashBoundResultIsCached() async throws {
+        try await withTemporaryDirectory { temporaryDirectory in
+            let sourceURL = try makeSyntheticIPA(in: temporaryDirectory)
+            let identifier = UUID()
+            let hash = try HashService().sha256(of: sourceURL)
+            let layout = LibraryFileLayout(applicationSupportURL: temporaryDirectory.appending(path: "support"))
+            try FileManager.default.createDirectory(at: layout.libraryRoot, withIntermediateDirectories: true)
+            try layout.createDirectories(for: identifier)
+            try FileManager.default.copyItem(at: sourceURL, to: layout.originalIPA(for: identifier))
+            let legacyItem = ImportedIPA(
+                id: identifier,
+                originalFilename: "Legacy.ipa",
+                sourceSHA256: hash,
+                originalRelativePath: layout.originalRelativePath(for: identifier),
+                byteSize: Int64(try Data(contentsOf: sourceURL).count)
+            )
+            let repository = InMemoryLibraryRepository(items: [legacyItem])
+            let inspector = RecordingInspector()
+            let service = IPALibraryService(
+                layout: layout,
+                repository: repository,
+                inspector: inspector
+            )
+
+            try await service.inspectPendingImportedIPAs()
+            try await service.inspectPendingImportedIPAs()
+
+            let restored = try await repository.importedIPA(id: identifier)
+            XCTAssertEqual(restored?.inspectionStatus, .inspected)
+            XCTAssertEqual(restored?.inspectionSourceSHA256, hash)
+            XCTAssertEqual(restored?.inspection?.sourceSHA256, hash)
+            let callCount = await inspector.callCount()
+            XCTAssertEqual(callCount, 1)
+        }
+    }
+
     private func makeSyntheticIPA(in directory: URL) throws -> URL {
         let plistURL = directory.appending(path: "Info.plist")
-        try Data("synthetic plist bytes".utf8).write(to: plistURL)
+        let plist = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "CFBundleDisplayName": "Synthetic",
+                "CFBundleIdentifier": "example.synthetic",
+                "CFBundleShortVersionString": "1.0",
+                "CFBundleVersion": "1",
+            ],
+            format: .binary,
+            options: 0
+        )
+        try plist.write(to: plistURL)
         let ipaURL = directory.appending(path: "Synthetic.ipa")
         do {
             let archive = try Archive(url: ipaURL, accessMode: .create)
             try archive.addEntry(with: "Payload/Synthetic.app/Info.plist", fileURL: plistURL)
         }
         return ipaURL
+    }
+
+    private func deterministicInspector() -> IPAInspectionService {
+        IPAInspectionService(
+            capacityProvider: FixedInspectionStorageCapacityProvider(availableCapacity: .max)
+        )
     }
 
     private func withTemporaryDirectory<T>(_ body: (URL) throws -> T) throws -> T {
@@ -258,6 +353,14 @@ final class IPALibraryTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         return try await body(directory)
+    }
+}
+
+private struct FixedInspectionStorageCapacityProvider: InspectionStorageCapacityProviding {
+    let availableCapacity: UInt64
+
+    func availableCapacity(forVolumeContaining url: URL) throws -> UInt64 {
+        availableCapacity
     }
 }
 
@@ -293,8 +396,51 @@ private actor InMemoryLibraryRepository: LibraryRepository {
         items.append(importedIPA)
     }
 
+    func updateInspection(
+        id: UUID,
+        status: InspectionStatus,
+        sourceSHA256: String?,
+        result: IPAInspectionResult?
+    ) throws {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            throw TestRepositoryError.forcedFailure
+        }
+        items[index].inspectionStatus = status
+        items[index].inspectionSourceSHA256 = sourceSHA256
+        items[index].inspection = result
+    }
+
     func removeImportedIPA(id: UUID) throws {
         if failOnRemove { throw TestRepositoryError.forcedFailure }
         items.removeAll { $0.id == id }
+    }
+}
+
+private actor RecordingInspector: IPAInspecting {
+    private var calls = 0
+
+    func inspect(_ request: IPAInspectionRequest) async throws -> IPAInspectionResult {
+        calls += 1
+        let app = AppBundleMetadata(
+            displayName: "Legacy",
+            bundleIdentifier: "example.legacy",
+            relativePath: "Payload/Legacy.app"
+        )
+        return IPAInspectionResult(
+            importedIPAID: request.importedIPAID,
+            sourceSHA256: request.sourceSHA256,
+            rootApplication: app,
+            components: [BundleComponent(
+                kind: .application,
+                relativePath: app.relativePath,
+                bundleIdentifier: app.bundleIdentifier,
+                displayName: app.displayName
+            )],
+            provisioningProfile: nil
+        )
+    }
+
+    func callCount() -> Int {
+        calls
     }
 }

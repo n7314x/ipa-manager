@@ -24,9 +24,14 @@ final class LibraryViewModel: ObservableObject {
             case .duplicateImport:
                 title = "Already in Library"
                 message = "This IPA has already been imported."
-            case .unsupportedArchive, .invalidArchive, .unsafeArchive, .invalidSource:
-                title = "Unsupported IPA"
-                message = "Choose a valid .ipa archive that contains a single application."
+            case .unsafeArchive, .duplicateArchiveEntry, .suspiciousCompressionRatio:
+                title = "Unsafe IPA"
+                message = "This archive contains content that cannot be extracted safely."
+            case .unsupportedArchive, .invalidArchive, .invalidSource,
+                 .invalidPayloadStructure, .missingApplicationBundle,
+                 .multipleRootApplications, .missingInfoPlist, .malformedInfoPlist:
+                title = "Invalid IPA"
+                message = "The archive does not contain a valid application in Payload."
             case .sourceTooLarge(let maximumBytes):
                 title = "IPA Is Too Large"
                 let limit = ByteCountFormatter.string(
@@ -34,6 +39,19 @@ final class LibraryViewModel: ObservableObject {
                     countStyle: .file
                 )
                 message = "The selected file exceeds the \(limit) import limit."
+            case .archiveTooLarge(let maximumBytes), .archiveEntryTooLarge(let maximumBytes):
+                title = "IPA Too Large"
+                let limit = ByteCountFormatter.string(
+                    fromByteCount: Int64(clamping: maximumBytes),
+                    countStyle: .file
+                )
+                message = "This archive expands beyond IPA Manager’s \(limit) safety limit."
+            case .tooManyArchiveEntries(let maximumCount):
+                title = "IPA Too Complex"
+                message = "This archive contains more than \(maximumCount) items and cannot be inspected safely."
+            case .insufficientStorage:
+                title = "Not Enough Storage"
+                message = "IPA Manager needs more free space to inspect this IPA safely."
             case .inaccessibleSource:
                 title = "File Unavailable"
                 message = "IPA Manager could not read the selected file. Make sure it is downloaded and try again."
@@ -49,7 +67,7 @@ final class LibraryViewModel: ObservableObject {
             case .libraryItemNotFound, .deletionFailure:
                 title = "Couldn’t Remove IPA"
                 message = "The managed copy could not be removed completely. Please try again."
-            case .malformedMetadata, .incompatibleSigning, .nativeFailure, .unsupported:
+            case .inspectionFailure, .malformedMetadata, .incompatibleSigning, .nativeFailure, .unsupported:
                 title = "Operation Failed"
                 message = "The operation could not be completed. Please try again."
             }
@@ -59,6 +77,7 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var importedIPAs: [ImportedIPA] = []
     @Published private(set) var isImporting = false
     @Published private(set) var isLoading = false
+    @Published private(set) var isInspecting = false
     @Published private(set) var successFeedbackToken = 0
     @Published var isFileImporterPresented = false
     @Published var presentedError: PresentedError?
@@ -78,6 +97,7 @@ final class LibraryViewModel: ObservableObject {
         guard !hasLoaded else { return }
         hasLoaded = true
         await reloadLibrary()
+        startLazyInspectionIfNeeded()
     }
 
     func importSelection(_ result: Result<URL, Error>) {
@@ -114,6 +134,7 @@ final class LibraryViewModel: ObservableObject {
                 present(error)
             }
             await reloadLibrary()
+            startLazyInspectionIfNeeded()
         }
     }
 
@@ -133,6 +154,7 @@ final class LibraryViewModel: ObservableObject {
                 present(error)
             }
             await reloadLibrary()
+            startLazyInspectionIfNeeded()
         }
     }
 
@@ -144,6 +166,30 @@ final class LibraryViewModel: ObservableObject {
             importedIPAs = try await service.listImportedIPAs()
         } catch {
             present(error)
+        }
+    }
+
+    private func startLazyInspectionIfNeeded() {
+        guard !isInspecting,
+              importedIPAs.contains(where: { $0.needsInspection }),
+              let service
+        else { return }
+
+        isInspecting = true
+        importedIPAs = importedIPAs.map { item in
+            guard item.needsInspection else { return item }
+            var inspectingItem = item
+            inspectingItem.inspectionStatus = .inspecting
+            return inspectingItem
+        }
+        Task { [weak self] in
+            do {
+                try await service.inspectPendingImportedIPAs()
+            } catch {
+                self?.present(error)
+            }
+            await self?.reloadLibrary()
+            self?.isInspecting = false
         }
     }
 

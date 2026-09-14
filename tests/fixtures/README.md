@@ -3,9 +3,11 @@
 Only synthetic, redistributable fixtures may be added. Never add real IPAs, certificates,
 private keys, passwords, provisioning profiles, authentication tokens, or pairing records.
 
-Future adversarial fixtures should cover traversal, absolute paths, symlinks, duplicate and
-Unicode-confusable paths, oversized entries, ZIP bombs, malformed ZIP metadata, malformed
-plists/Mach-O files, multiple top-level apps, frameworks, extensions, and expired profiles.
+Phase 1B-A tests generate adversarial archive descriptors and tiny ZIP/property-list fixtures for
+traversal, absolute paths, symlinks, duplicate normalized paths, resource limits, ZIP-bomb ratios,
+malformed metadata, multiple top-level apps, frameworks, extensions, nested apps, icons, and
+provisioning summaries. Mach-O fixtures remain deferred to Phase 1B-B.
 
-Phase 1A Swift tests generate their minimal valid ZIP-based IPA at runtime with the repository's
-exact ZIPFoundation dependency. No binary IPA fixture is stored here.
+Swift tests generate their minimal ZIP-based IPAs at runtime with the repository's exact
+ZIPFoundation dependency. No binary IPA, provisioning profile, or extracted application fixture
+is stored here.

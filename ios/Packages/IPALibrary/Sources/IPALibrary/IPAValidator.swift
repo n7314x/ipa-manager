@@ -1,6 +1,6 @@
 import Foundation
 import IPADomain
-import ZIPFoundation
+import IPAInspection
 
 public struct IPAValidator: Sendable {
     public init() {}
@@ -24,44 +24,12 @@ public struct IPAValidator: Sendable {
             throw IPAError.sourceTooLarge(maximumBytes: policy.maximumSourceIPABytes)
         }
 
-        let archive: Archive
-        do {
-            archive = try Archive(url: url, accessMode: .read)
-        } catch {
-            throw IPAError.unsupportedArchive
-        }
-
-        var entries: [ArchiveEntryDescriptor] = []
-        var paths: [String] = []
-        entries.reserveCapacity(min(policy.maximumEntryCount, 256))
-        paths.reserveCapacity(min(policy.maximumEntryCount, 256))
-        for entry in archive {
-            guard entries.count < policy.maximumEntryCount else {
-                throw IPAError.unsafeArchive("entry limit exceeded")
-            }
-            entries.append(ArchiveEntryDescriptor(
-                path: entry.path,
-                compressedSize: entry.compressedSize,
-                uncompressedSize: entry.uncompressedSize,
-                isSymbolicLink: entry.type == .symlink
-            ))
-            paths.append(entry.path)
-        }
-        guard !entries.isEmpty else { throw IPAError.unsupportedArchive }
-        try policy.validate(entries)
-        _ = try validatePayloadPaths(paths)
+        _ = try ArchivePreflightValidator(policy: policy).preflight(archiveAt: url)
         return Int64(fileSize)
     }
 
     public func validatePayloadPaths(_ paths: [String]) throws -> String {
-        let apps = Set(paths.compactMap { path -> String? in
-            let parts = path.split(separator: "/")
-            guard parts.count >= 2, parts[0] == "Payload", parts[1].hasSuffix(".app") else { return nil }
-            return "Payload/\(parts[1])"
-        })
-        guard apps.count == 1, let app = apps.first else {
-            throw IPAError.invalidArchive("expected exactly one top-level Payload app")
-        }
-        return app
+        let normalized = try paths.map { try ArchiveSafetyPolicy.default.normalizedPath($0) }
+        return try ArchivePreflightValidator().rootApplicationPath(in: normalized)
     }
 }

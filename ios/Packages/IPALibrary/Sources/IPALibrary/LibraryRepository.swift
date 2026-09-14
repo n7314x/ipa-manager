@@ -6,5 +6,11 @@ public protocol LibraryRepository: Sendable {
     func importedIPA(id: UUID) async throws -> ImportedIPA?
     func findBySHA256(_ sha256: String) async throws -> ImportedIPA?
     func save(_ importedIPA: ImportedIPA) async throws
+    func updateInspection(
+        id: UUID,
+        status: InspectionStatus,
+        sourceSHA256: String?,
+        result: IPAInspectionResult?
+    ) async throws
     func removeImportedIPA(id: UUID) async throws
 }
