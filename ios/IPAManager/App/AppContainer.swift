@@ -8,7 +8,8 @@ final class AppContainer {
     let persistenceController: PersistenceController
     let libraryService: IPALibraryService
 
-    init(fileManager: FileManager = .default) throws {
+    init() throws {
+        let fileManager = FileManager()
         let persistenceController = try PersistenceController()
         let applicationSupportURL = try fileManager.url(
             for: .applicationSupportDirectory,
@@ -22,8 +23,7 @@ final class AppContainer {
         self.persistenceController = persistenceController
         self.libraryService = IPALibraryService(
             layout: LibraryFileLayout(applicationSupportURL: applicationSupportURL),
-            repository: repository,
-            fileManager: fileManager
+            repository: repository
         )
     }
 }

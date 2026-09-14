@@ -1,6 +1,6 @@
 import Foundation
 
-public final class TemporaryWorkspace: @unchecked Sendable {
+public final class TemporaryWorkspace {
     public let url: URL
     private let fileManager: FileManager
 

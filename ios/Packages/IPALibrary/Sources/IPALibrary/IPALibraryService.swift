@@ -13,14 +13,13 @@ public actor IPALibraryService {
         layout: LibraryFileLayout,
         repository: any LibraryRepository,
         policy: ArchiveSafetyPolicy = .default,
-        fileManager: FileManager = .default,
         idGenerator: @escaping @Sendable () -> UUID = { UUID() },
         dateProvider: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.layout = layout
         self.repository = repository
         self.policy = policy
-        self.fileManager = fileManager
+        self.fileManager = FileManager()
         self.idGenerator = idGenerator
         self.dateProvider = dateProvider
     }

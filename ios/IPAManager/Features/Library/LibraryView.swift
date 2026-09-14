@@ -66,7 +66,6 @@ struct LibraryView: View {
         .fileImporter(
             isPresented: $viewModel.isFileImporterPresented,
             allowedContentTypes: [.ipaArchive],
-            allowsMultipleSelection: false,
             onCompletion: { result in viewModel.importSelection(result) }
         )
         .alert(item: $viewModel.presentedError) { error in

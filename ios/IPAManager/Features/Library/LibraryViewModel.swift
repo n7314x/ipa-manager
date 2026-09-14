@@ -33,13 +33,9 @@ final class LibraryViewModel: ObservableObject {
         await reloadLibrary()
     }
 
-    func importSelection(_ result: Result<[URL], Error>) {
+    func importSelection(_ result: Result<URL, Error>) {
         switch result {
-        case .success(let urls):
-            guard let url = urls.first else {
-                present(IPAError.invalidSource("no file was selected"))
-                return
-            }
+        case .success(let url):
             importIPA(from: url)
         case .failure(let error):
             if let cocoaError = error as? CocoaError, cocoaError.code == .userCancelled { return }
