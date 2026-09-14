@@ -1,6 +1,7 @@
 import Foundation
 
 public enum IPAError: Error, Codable, Equatable, Sendable {
+    case invalidFileExtension
     case invalidSource(String)
     case inaccessibleSource
     case sourceTooLarge(maximumBytes: UInt64)
@@ -22,6 +23,8 @@ public enum IPAError: Error, Codable, Equatable, Sendable {
 extension IPAError: LocalizedError {
     public var errorDescription: String? {
         switch self {
+        case .invalidFileExtension:
+            "Choose a file with the .ipa extension."
         case .invalidSource(let reason):
             "The selected file cannot be imported: \(reason)"
         case .inaccessibleSource:

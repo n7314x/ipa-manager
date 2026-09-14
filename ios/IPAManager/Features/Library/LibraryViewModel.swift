@@ -18,6 +18,9 @@ final class LibraryViewModel: ObservableObject {
             }
 
             switch ipaError {
+            case .invalidFileExtension:
+                title = "Not an IPA"
+                message = "Choose a file with the .ipa extension."
             case .duplicateImport:
                 title = "Already in Library"
                 message = "This IPA has already been imported."
@@ -80,7 +83,12 @@ final class LibraryViewModel: ObservableObject {
     func importSelection(_ result: Result<URL, Error>) {
         switch result {
         case .success(let url):
-            importIPA(from: url)
+            do {
+                try IPAFileSelection.validate(url)
+                importIPA(from: url)
+            } catch {
+                present(error)
+            }
         case .failure(let error):
             if let cocoaError = error as? CocoaError, cocoaError.code == .userCancelled { return }
             present(IPAError.inaccessibleSource)

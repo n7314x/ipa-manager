@@ -35,7 +35,7 @@ struct LibraryView: View {
         .task { await viewModel.loadIfNeeded() }
         .fileImporter(
             isPresented: $viewModel.isFileImporterPresented,
-            allowedContentTypes: [.ipaArchive],
+            allowedContentTypes: [.data],
             onCompletion: { result in viewModel.importSelection(result) }
         )
         .sheet(item: $selectedIPA) { importedIPA in
@@ -162,8 +162,4 @@ struct LibraryView: View {
         guard let pendingDeletion = viewModel.pendingDeletion else { return "Remove this IPA?" }
         return "Remove \(pendingDeletion.originalFilename)?"
     }
-}
-
-private extension UTType {
-    static let ipaArchive = UTType(filenameExtension: "ipa", conformingTo: .zip) ?? .zip
 }

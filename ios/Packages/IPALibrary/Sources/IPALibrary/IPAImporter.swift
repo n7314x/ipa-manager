@@ -10,13 +10,12 @@ public struct IPAImporter {
 
     /// Copies the provider URL into an app-owned temporary workspace and releases it immediately.
     public func copyToTemporaryWorkspace(from source: URL, to destination: URL) throws {
+        try IPAFileSelection.validate(source)
+
         let accessed = source.startAccessingSecurityScopedResource()
         defer { if accessed { source.stopAccessingSecurityScopedResource() } }
 
         do {
-            guard source.pathExtension.lowercased() == "ipa" else {
-                throw IPAError.invalidSource("the filename does not have an .ipa extension")
-            }
             let values = try source.resourceValues(forKeys: [
                 .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey,
             ])
